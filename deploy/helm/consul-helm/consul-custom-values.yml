@@ -1,0 +1,16 @@
+ui:
+  service:
+    type: "NodePort"
+
+connectInject:
+  enabled: false
+
+client:
+  enabled: false
+
+server:
+  replicas: 1
+  bootstrapExpect: 1
+  disruptionBudget:
+    enabled: true
+    maxUnavailable: 0

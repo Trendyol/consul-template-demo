@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: test
+  name: consul-template-demo-sa
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: test
+  name: consul-template-demo-cm
+data:
+  config.tpl: |
+    server:
+      port: "{{ key "apps/example/serverPort" }}"
+    toggles:
+      fooEnabled: {{ key "apps/example/fooEnabled" }}
+    database:
+      username: "{{ key "apps/example/dbUsername" }}"
+      {{ with secret "secret/data/apps/example" }}
+      password: "{{ .Data.data.dbPassword }}"
+      {{ end }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul-template-demo
+  namespace: test
+spec:
+  selector:
+    app: consul-template-demo
+  type: NodePort
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 32222
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consul-template-demo
+  labels:
+    app: consul-template-demo
+  namespace: test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consul-template-demo
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: consul-template-demo
+    spec:
+      serviceAccountName: consul-template-demo-sa
+      volumes:
+        - name: config-input-volume
+          configMap:
+            name: consul-template-demo-cm
+        - name: config-output-volume
+          emptyDir:
+            medium: Memory
+      initContainers:
+        - name: consul-template-init
+          image: tresci/consul-template
+          env:
+            - name: CONSUL_ADDR
+              value: "consul-consul-server.hashicorp:8500"
+            - name: VAULT_ADDR
+              value: "http://vault.hashicorp:8200"
+            - name: VAULT_TOKEN
+              value: "$VAULT_TOKEN"
+            - name: TEMPLATE_FILEPATH
+              value: /conf/config.tpl
+            - name: CONFIG_OUTPUT_FILEPATH
+              value: /app/config/app-config.yml
+            - name: EXTRA_ARGS
+              value: "-once"
+          volumeMounts:
+            - name: config-input-volume
+              mountPath: /conf
+            - name: config-output-volume
+              mountPath: /app/config
+          imagePullPolicy: IfNotPresent
+      containers:
+        - name: application
+          image: tresci/consul-template-demo
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: config-output-volume
+              mountPath: /app/config
+          imagePullPolicy: IfNotPresent
+        - name: consul-template-sidecar
+          image: tresci/consul-template
+          env:
+            - name: CONSUL_ADDR
+              value: "consul-consul-server.hashicorp:8500"
+            - name: VAULT_ADDR
+              value: "http://vault.hashicorp:8200"
+            - name: VAULT_TOKEN
+              value: "$VAULT_TOKEN"
+            - name: TEMPLATE_FILEPATH
+              value: /conf/config.tpl
+            - name: CONFIG_OUTPUT_FILEPATH
+              value: /app/config/app-config.yml
+          volumeMounts:
+            - name: config-input-volume
+              mountPath: /conf
+            - name: config-output-volume
+              mountPath: /app/config
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 120
+      schedulerName: default-scheduler
