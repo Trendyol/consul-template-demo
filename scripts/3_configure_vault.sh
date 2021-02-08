@@ -43,4 +43,4 @@ vault write auth/my-kube/role/example \
 # create a token with example policy
 vault token create --policy example-policy
 
-export VAULT_TOKEN=
+# export VAULT_TOKEN=<paste_token_here>
